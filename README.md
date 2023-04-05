@@ -72,10 +72,14 @@ supervised
 ```
 
 Run prefix tuning:
+
 ``` sh
 ./run.sh prefix
 ```
 
+New arguments are added in `train.py`, from 332-th line
+
+Search `lahelr` for modifications I have made.
  
 ## Static token embedding with removing embedding biases
 robert-base, bert-base-cased and robert-base-uncased
