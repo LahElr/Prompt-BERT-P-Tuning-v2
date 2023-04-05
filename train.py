@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 MODEL_CONFIG_CLASSES = list(MODEL_FOR_MASKED_LM_MAPPING.keys())
 MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
+
 @dataclass
 class ModelArguments:
     """
@@ -58,7 +59,8 @@ class ModelArguments:
     )
     model_type: Optional[str] = field(
         default=None,
-        metadata={"help": "If training from scratch, pass a model type from the list: " + ", ".join(MODEL_TYPES)},
+        metadata={
+            "help": "If training from scratch, pass a model type from the list: " + ", ".join(MODEL_TYPES)},
     )
     config_name: Optional[str] = field(
         default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
@@ -68,15 +70,18 @@ class ModelArguments:
     )
     cache_dir: Optional[str] = field(
         default=None,
-        metadata={"help": "Where do you want to store the pretrained models downloaded from huggingface.co"},
+        metadata={
+            "help": "Where do you want to store the pretrained models downloaded from huggingface.co"},
     )
     use_fast_tokenizer: bool = field(
         default=True,
-        metadata={"help": "Whether to use one of the fast tokenizer (backed by the tokenizers library) or not."},
+        metadata={
+            "help": "Whether to use one of the fast tokenizer (backed by the tokenizers library) or not."},
     )
     model_revision: str = field(
         default="main",
-        metadata={"help": "The specific model version to use (can be a branch name, tag name or commit id)."},
+        metadata={
+            "help": "The specific model version to use (can be a branch name, tag name or commit id)."},
     )
     use_auth_token: bool = field(
         default=False,
@@ -111,7 +116,7 @@ class ModelArguments:
         }
     )
 
-    freeze_layers: str= field(
+    freeze_layers: str = field(
         default='',
         metadata={
         }
@@ -161,7 +166,7 @@ class ModelArguments:
         metadata={
         }
     )
-    mask_embedding_sentence_different_template: str= field(
+    mask_embedding_sentence_different_template: str = field(
         default='',
         metadata={
         }
@@ -231,7 +236,7 @@ class ModelArguments:
         metadata={
         }
     )
-    mask_embedding_sentence_autoprompt_continue_training: str= field(
+    mask_embedding_sentence_autoprompt_continue_training: str = field(
         default='',
         metadata={
         }
@@ -324,6 +329,14 @@ class ModelArguments:
         metadata={
         }
     )
+    # lahelr: additional config items start here
+    p_tuning_prompt: bool = field(default=False, metadata={})
+    prefix_projection: bool = field(default=False, metadata={})
+    pre_seq_len: int = field(default=4, metadata={})
+    prefix_hidden_size: int = field(default=512, metadata={})
+    prefix_encoder_dropout: int = field(default=0.1, metadata={})
+    # lahelr: end here
+
 
 @dataclass
 class DataTrainingArguments:
@@ -331,7 +344,7 @@ class DataTrainingArguments:
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
 
-    # Huggingface's original arguments. 
+    # Huggingface's original arguments.
     dataset_name: Optional[str] = field(
         default=None, metadata={"help": "The name of the dataset to use (via the datasets library)."}
     )
@@ -353,7 +366,7 @@ class DataTrainingArguments:
     )
 
     train_file: Optional[str] = field(
-        default=None, 
+        default=None,
         metadata={"help": "The training data file (.txt or .csv)."}
     )
     max_seq_length: Optional[int] = field(
@@ -371,24 +384,28 @@ class DataTrainingArguments:
         },
     )
     mlm_probability: float = field(
-        default=0.15, 
-        metadata={"help": "Ratio of tokens to mask for MLM (only effective if --do_mlm)"}
+        default=0.15,
+        metadata={
+            "help": "Ratio of tokens to mask for MLM (only effective if --do_mlm)"}
     )
+
     def __post_init__(self):
         if self.dataset_name is None and self.train_file is None and self.validation_file is None:
-            raise ValueError("Need either a dataset name or a training/validation file.")
+            raise ValueError(
+                "Need either a dataset name or a training/validation file.")
         else:
             if self.train_file is not None:
                 extension = self.train_file.split(".")[-1]
-                assert extension in ["csv", "json", "txt"], "`train_file` should be a csv, a json or a txt file."
+                assert extension in [
+                    "csv", "json", "txt"], "`train_file` should be a csv, a json or a txt file."
 
 
 @dataclass
 class OurTrainingArguments(TrainingArguments):
     # Evaluation
-    ## By default, we evaluate STS (dev) during training (for selecting best checkpoints) and evaluate 
-    ## both STS and transfer tasks (dev) at the end of training. Using --eval_transfer will allow evaluating
-    ## both STS and transfer tasks (dev) during training.
+    # By default, we evaluate STS (dev) during training (for selecting best checkpoints) and evaluate
+    # both STS and transfer tasks (dev) at the end of training. Using --eval_transfer will allow evaluating
+    # both STS and transfer tasks (dev) during training.
     eval_transfer: bool = field(
         default=False,
         metadata={"help": "Evaluate transfer task dev sets (in validation)."}
@@ -415,7 +432,8 @@ class OurTrainingArguments(TrainingArguments):
     )
     load_best_model_at_end: bool = field(
         default=False,
-        metadata={"help": "Whether or not to load the best model found during training at the end of training."},
+        metadata={
+            "help": "Whether or not to load the best model found during training at the end of training."},
     )
 
     @cached_property
@@ -435,7 +453,8 @@ class OurTrainingArguments(TrainingArguments):
             # trigger an error that a device index is missing. Index 0 takes into account the
             # GPUs available in the environment, so `CUDA_VISIBLE_DEVICES=1,2` with `cuda:0`
             # will use the first GPU in that env, i.e. GPU#1
-            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+            device = torch.device(
+                "cuda:0" if torch.cuda.is_available() else "cpu")
             # Sometimes the line in the postinit has not been run before we end up here, so just checking we're not at
             # the default value.
             self._n_gpu = torch.cuda.device_count()
@@ -451,7 +470,8 @@ class OurTrainingArguments(TrainingArguments):
                 from .integrations import is_deepspeed_available
 
                 if not is_deepspeed_available():
-                    raise ImportError("--deepspeed requires deepspeed: `pip install deepspeed`.")
+                    raise ImportError(
+                        "--deepspeed requires deepspeed: `pip install deepspeed`.")
                 import deepspeed
 
                 deepspeed.init_distributed()
@@ -471,11 +491,13 @@ def main():
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
 
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, OurTrainingArguments))
+    parser = HfArgumentParser(
+        (ModelArguments, DataTrainingArguments, OurTrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
         # let's parse it to get our arguments.
-        model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+        model_args, data_args, training_args = parser.parse_json_file(
+            json_file=os.path.abspath(sys.argv[1]))
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
@@ -494,7 +516,8 @@ def main():
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
-        level=logging.INFO if is_main_process(training_args.local_rank) else logging.WARN,
+        level=logging.INFO if is_main_process(
+            training_args.local_rank) else logging.WARN,
     )
 
     # Log on each process the small summary:
@@ -528,9 +551,11 @@ def main():
     if extension == "txt":
         extension = "text"
     if extension == "csv":
-        datasets = load_dataset(extension, data_files=data_files, cache_dir="./data/", delimiter="\t" if "tsv" in data_args.train_file else ",")
+        datasets = load_dataset(extension, data_files=data_files, cache_dir="./data/",
+                                delimiter="\t" if "tsv" in data_args.train_file else ",")
     else:
-        datasets = load_dataset(extension, data_files=data_files, cache_dir="./data/")
+        datasets = load_dataset(
+            extension, data_files=data_files, cache_dir="./data/")
 
     # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
     # https://huggingface.co/docs/datasets/loading_datasets.html.
@@ -545,7 +570,8 @@ def main():
         "revision": model_args.model_revision,
         "use_auth_token": True if model_args.use_auth_token else None,
     }
-    config = AutoConfig.from_pretrained(model_args.model_name_or_path, **config_kwargs)
+    config = AutoConfig.from_pretrained(
+        model_args.model_name_or_path, **config_kwargs)
 
     tokenizer_kwargs = {
         "cache_dir": model_args.cache_dir,
@@ -554,7 +580,8 @@ def main():
         "use_auth_token": True if model_args.use_auth_token else None,
     }
 
-    tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path, **tokenizer_kwargs)
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_args.model_name_or_path, **tokenizer_kwargs)
 
     if model_args.model_name_or_path:
         if 'roberta' in model_args.model_name_or_path:
@@ -565,7 +592,7 @@ def main():
                 cache_dir=model_args.cache_dir,
                 revision=model_args.model_revision,
                 use_auth_token=True if model_args.use_auth_token else None,
-                model_args=model_args                  
+                model_args=model_args
             )
 
         elif 'bert' in model_args.model_name_or_path:
@@ -580,8 +607,10 @@ def main():
             )
             if model_args.mask_embedding_sentence_org_mlp:
                 from transformers import BertForMaskedLM, BertConfig
-                config = BertConfig.from_pretrained(model_args.model_name_or_path)
-                model.mlp = BertForMaskedLM.from_pretrained(model_args.model_name_or_path, config=config).cls.predictions.transform
+                config = BertConfig.from_pretrained(
+                    model_args.model_name_or_path)
+                model.mlp = BertForMaskedLM.from_pretrained(
+                    model_args.model_name_or_path, config=config).cls.predictions.transform
 
         else:
             raise NotImplementedError
@@ -615,6 +644,9 @@ def main():
         raise NotImplementedError
 
     if model_args.mask_embedding_sentence:
+        if model_args.p_tuning_prompt:
+            # lahelr
+            raise ResourceWarning("YOU SHOULD NOT USE mask_embedding_sentence OPTION IN P-tuning.")
         if model_args.mask_embedding_sentence_template != '':
             template = model_args.mask_embedding_sentence_template
             assert ' ' not in template
@@ -622,11 +654,13 @@ def main():
                                .replace('*sep+*', '')\
                                .replace('*cls*', '').replace('*sent_0*', ' ')
             template = template.split(' ')
-            model_args.mask_embedding_sentence_bs = template[0].replace('_', ' ')
+            model_args.mask_embedding_sentence_bs = template[0].replace(
+                '_', ' ')
             if 'roberta' in model_args.model_name_or_path:
                 # remove empty block
                 model_args.mask_embedding_sentence_bs = model_args.mask_embedding_sentence_bs.strip()
-            model_args.mask_embedding_sentence_es = template[1].replace('_', ' ')
+            model_args.mask_embedding_sentence_es = template[1].replace(
+                '_', ' ')
         if model_args.mask_embedding_sentence_different_template != '':
             template = model_args.mask_embedding_sentence_different_template
             assert ' ' not in template
@@ -634,19 +668,20 @@ def main():
                                .replace('*sep+*', '')\
                                .replace('*cls*', '').replace('*sent_0*', ' ')
             template = template.split(' ')
-            model_args.mask_embedding_sentence_bs2 = template[0].replace('_', ' ')
+            model_args.mask_embedding_sentence_bs2 = template[0].replace(
+                '_', ' ')
             if 'roberta' in model_args.model_name_or_path:
                 # remove empty block
                 model_args.mask_embedding_sentence_bs2 = model_args.mask_embedding_sentence_bs2.strip()
-            model_args.mask_embedding_sentence_es2 = template[1].replace('_', ' ')
+            model_args.mask_embedding_sentence_es2 = template[1].replace(
+                '_', ' ')
         #mask_embedding_sentence_bs_tokens = tokenizer.encode(model_args.mask_embedding_sentence_bs, add_special_tokens=False)
         #mask_embedding_sentence_es_tokens = tokenizer.encode(model_args.mask_embedding_sentence_es, add_special_tokens=False)
-
 
     def prepare_features(examples):
         # padding = longest (default)
         #   If no sentence in the batch exceed the max length, then use
-        #   the max sentence length in the batch, otherwise use the 
+        #   the max sentence length in the batch, otherwise use the
         #   max sentence length in the argument and truncate those that
         #   exceed the max length.
         # padding = max_length (when pad_to_max_length, for pressure test)
@@ -672,31 +707,39 @@ def main():
 
         if model_args.mask_embedding_sentence:
             bs = tokenizer.encode(model_args.mask_embedding_sentence_bs)[:-1]
-            es = tokenizer.encode(model_args.mask_embedding_sentence_es)[1:] # remove cls or bos
+            es = tokenizer.encode(model_args.mask_embedding_sentence_es)[
+                1:]  # remove cls or bos
 
             if len(model_args.mask_embedding_sentence_different_template) > 0:
-                bs2 = tokenizer.encode(model_args.mask_embedding_sentence_bs2)[:-1]
-                es2 = tokenizer.encode(model_args.mask_embedding_sentence_es2)[1:] # remove cls or bos
+                bs2 = tokenizer.encode(
+                    model_args.mask_embedding_sentence_bs2)[:-1]
+                es2 = tokenizer.encode(model_args.mask_embedding_sentence_es2)[
+                    1:]  # remove cls or bos
             else:
                 bs2, es2 = bs, es
 
             sent_features = {'input_ids': [], 'attention_mask': []}
             for i, s in enumerate(sentences):
                 if i < total:
-                    s = tokenizer.encode(s, add_special_tokens=False)[:data_args.max_seq_length]
+                    s = tokenizer.encode(s, add_special_tokens=False)[
+                        :data_args.max_seq_length]
                     sent_features['input_ids'].append(bs+s+es)
                 elif i < 2*total:
-                    s = tokenizer.encode(s, add_special_tokens=False)[:data_args.max_seq_length]
+                    s = tokenizer.encode(s, add_special_tokens=False)[
+                        :data_args.max_seq_length]
                     sent_features['input_ids'].append(bs2+s+es2)
                 else:
-                    s = tokenizer.encode(s, add_special_tokens=False)[:data_args.max_seq_length]
+                    s = tokenizer.encode(s, add_special_tokens=False)[
+                        :data_args.max_seq_length]
                     sent_features['input_ids'].append(bs2+s+es2)
 
             ml = max([len(i) for i in sent_features['input_ids']])
             for i in range(len(sent_features['input_ids'])):
                 t = sent_features['input_ids'][i]
-                sent_features['input_ids'][i] = t + [tokenizer.pad_token_id]*(ml-len(t))
-                sent_features['attention_mask'].append(len(t)*[1] + (ml-len(t))*[0])
+                sent_features['input_ids'][i] = t + \
+                    [tokenizer.pad_token_id]*(ml-len(t))
+                sent_features['attention_mask'].append(
+                    len(t)*[1] + (ml-len(t))*[0])
         else:
             sent_features = tokenizer(
                 sentences,
@@ -705,14 +748,15 @@ def main():
                 padding="max_length" if data_args.pad_to_max_length else False,
             )
 
-
         features = {}
         if sent2_cname is not None:
             for key in sent_features:
-                features[key] = [[sent_features[key][i], sent_features[key][i+total], sent_features[key][i+total*2]] for i in range(total)]
+                features[key] = [[sent_features[key][i], sent_features[key]
+                                  [i+total], sent_features[key][i+total*2]] for i in range(total)]
         else:
             for key in sent_features:
-                features[key] = [[sent_features[key][i], sent_features[key][i+total]] for i in range(total)]
+                features[key] = [[sent_features[key][i],
+                                  sent_features[key][i+total]] for i in range(total)]
         return features
 
     if training_args.do_train:
@@ -724,8 +768,8 @@ def main():
             load_from_cache_file=not data_args.overwrite_cache,
         )
 
-
     # Data collator
+
     @dataclass
     class OurDataCollatorWithPadding:
 
@@ -747,7 +791,8 @@ def main():
             flat_features = []
             for feature in features:
                 for i in range(num_sent):
-                    flat_features.append({k: feature[k][i] if k in special_keys else feature[k] for k in feature})
+                    flat_features.append(
+                        {k: feature[k][i] if k in special_keys else feature[k] for k in feature})
 
             batch = self.tokenizer.pad(
                 flat_features,
@@ -757,8 +802,8 @@ def main():
                 return_tensors="pt",
             )
 
-            batch = {k: batch[k].view(bs, num_sent, -1) if k in special_keys else batch[k].view(bs, num_sent, -1)[:, 0] for k in batch}
-
+            batch = {k: batch[k].view(
+                bs, num_sent, -1) if k in special_keys else batch[k].view(bs, num_sent, -1)[:, 0] for k in batch}
 
             if "label" in batch:
                 batch["labels"] = batch["label"]
@@ -768,46 +813,57 @@ def main():
                 del batch["label_ids"]
 
             return batch
-        
 
-    data_collator = default_data_collator if data_args.pad_to_max_length else OurDataCollatorWithPadding(tokenizer)
+    data_collator = default_data_collator if data_args.pad_to_max_length else OurDataCollatorWithPadding(
+        tokenizer)
 
     # setup for wandb
-    #training_args.logging_steps=20
-    #training_args.evaluation_strategy="non"
+    # training_args.logging_steps=20
+    # training_args.evaluation_strategy="non"
     if model_args.mask_embedding_sentence:
         model.mask_token_id = tokenizer.mask_token_id
         model.pad_token_id = tokenizer.pad_token_id
         model.bos = tokenizer.encode('')[0]
         model.eos = tokenizer.encode('')[1]
-        model.bs = tokenizer.encode(model_args.mask_embedding_sentence_bs, add_special_tokens=False)
-        model.es = tokenizer.encode(model_args.mask_embedding_sentence_es, add_special_tokens=False)
+        model.bs = tokenizer.encode(
+            model_args.mask_embedding_sentence_bs, add_special_tokens=False)
+        model.es = tokenizer.encode(
+            model_args.mask_embedding_sentence_es, add_special_tokens=False)
 
-        model.mask_embedding_template = tokenizer.encode(model_args.mask_embedding_sentence_bs + model_args.mask_embedding_sentence_es)
+        model.mask_embedding_template = tokenizer.encode(
+            model_args.mask_embedding_sentence_bs + model_args.mask_embedding_sentence_es)
 
         print('template bs', model.bs)
         print('template es', model.es)
-        print('template mask_embedding_template', tokenizer.decode(model.mask_embedding_template))
-        print('template mask_embedding_template', model.mask_embedding_template)
+        print('template mask_embedding_template',
+              tokenizer.decode(model.mask_embedding_template))
+        print('template mask_embedding_template',
+              model.mask_embedding_template)
 
-        assert len(model.mask_embedding_template) == len(model.bs) + len(model.es) + 2
+        assert len(model.mask_embedding_template) == len(
+            model.bs) + len(model.es) + 2
         assert model.mask_embedding_template[1:-1] == model.bs + model.es
 
         if len(model_args.mask_embedding_sentence_different_template) > 0:
-            model.mask_embedding_template2 = tokenizer.encode(model_args.mask_embedding_sentence_bs2 + \
+            model.mask_embedding_template2 = tokenizer.encode(model_args.mask_embedding_sentence_bs2 +
                                                               model_args.mask_embedding_sentence_es2)
-            print('d template mask_embedding_template', tokenizer.decode(model.mask_embedding_template2))
-            print('d template mask_embedding_template', model.mask_embedding_template2)
+            print('d template mask_embedding_template',
+                  tokenizer.decode(model.mask_embedding_template2))
+            print('d template mask_embedding_template',
+                  model.mask_embedding_template2)
 
         if model_args.mask_embedding_sentence_autoprompt:
-            mask_index = model.mask_embedding_template.index(tokenizer.mask_token_id)
-            index_mbv = model.mask_embedding_template[1:mask_index] + model.mask_embedding_template[mask_index+1:-1]
+            mask_index = model.mask_embedding_template.index(
+                tokenizer.mask_token_id)
+            index_mbv = model.mask_embedding_template[1:mask_index] + \
+                model.mask_embedding_template[mask_index+1:-1]
 
             model.dict_mbv = index_mbv
             model.fl_mbv = [i <= 3 for i, k in enumerate(index_mbv)]
 
             if len(model_args.mask_embedding_sentence_autoprompt_continue_training) > 0:
-                state_dict = torch.load(model_args.mask_embedding_sentence_autoprompt_continue_training+'/pytorch_model.bin')
+                state_dict = torch.load(
+                    model_args.mask_embedding_sentence_autoprompt_continue_training+'/pytorch_model.bin')
                 p_mbv_w = state_dict['p_mbv']
                 mlp_state_dict = {}
                 for i in state_dict:
@@ -815,14 +871,15 @@ def main():
                         mlp_state_dict[i[4:]] = state_dict[i]
                 model.mlp.load_state_dict(mlp_state_dict)
             else:
-                p_mbv_w = model.bert.embeddings.word_embeddings.weight[model.dict_mbv].clone()
-            model.register_parameter(name='p_mbv', param=torch.nn.Parameter(p_mbv_w))
+                p_mbv_w = model.bert.embeddings.word_embeddings.weight[model.dict_mbv].clone(
+                )
+            model.register_parameter(
+                name='p_mbv', param=torch.nn.Parameter(p_mbv_w))
             if model_args.mask_embedding_sentence_autoprompt_freeze_prompt:
                 model.p_mbv.requires_grad = False
 
             if model_args.mask_embedding_sentence_autoprompt_random_init:
                 model.p_mbv.data.normal_(mean=0.0, std=0.02)
-
 
     trainer = CLTrainer(
         model=model,
@@ -835,16 +892,17 @@ def main():
 
     # Training
     if training_args.do_train:
-        #model_path = (
-            #model_args.model_name_or_path
-            #if (model_args.model_name_or_path is not None and os.path.isdir(model_args.model_name_or_path))
-            #else None
-        #)
+        # model_path = (
+        # model_args.model_name_or_path
+        # if (model_args.model_name_or_path is not None and os.path.isdir(model_args.model_name_or_path))
+        # else None
+        # )
         model_path = None
         train_result = trainer.train(model_path=model_path)
         trainer.save_model()  # Saves the tokenizer too for easy upload
 
-        output_train_file = os.path.join(training_args.output_dir, "train_results.txt")
+        output_train_file = os.path.join(
+            training_args.output_dir, "train_results.txt")
         if trainer.is_world_process_zero():
             with open(output_train_file, "w") as writer:
                 logger.info("***** Train results *****")
@@ -853,7 +911,8 @@ def main():
                     writer.write(f"{key} = {value}\n")
 
             # Need to save the state, since Trainer.save_model saves only the tokenizer with the model
-            trainer.state.save_to_json(os.path.join(training_args.output_dir, "trainer_state.json"))
+            trainer.state.save_to_json(os.path.join(
+                training_args.output_dir, "trainer_state.json"))
 
     # Evaluation
     results = {}
@@ -861,7 +920,8 @@ def main():
         logger.info("*** Evaluate ***")
         results = trainer.evaluate(eval_senteval_transfer=True)
 
-        output_eval_file = os.path.join(training_args.output_dir, "eval_results.txt")
+        output_eval_file = os.path.join(
+            training_args.output_dir, "eval_results.txt")
         if trainer.is_world_process_zero():
             with open(output_eval_file, "w") as writer:
                 logger.info("***** Eval results *****")
@@ -870,6 +930,7 @@ def main():
                     writer.write(f"{key} = {value}\n")
 
     return results
+
 
 def _mp_fn(index):
     # For xla_spawn (TPUs)

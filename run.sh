@@ -1,7 +1,7 @@
 #!/bin/bash
 EXP=$1
 
-GPU=0,1,2,3
+GPU=0
 ES=125 # --eval_steps
 BMETRIC=stsb_spearman # --metric_for_best_model
 TRAIN_FILE=data/wiki1m_for_simcse.txt
@@ -139,6 +139,18 @@ case "$EXP" in
            --mask_embedding_sentence \
            --mask_embedding_sentence_template $TEMPLATE )
     ;;
+"prefix")
+    BC=(python train.py)
+    TRAIN_FILE=data/nli_for_simcse.csv
+    GPU=0
+    BATCH=64
+    EPOCH=3
+    LR=5e-5
+    MODEL=bert-base-uncased
+    args=(--p_tuning_prompt \
+          --prefix_projection)
+    eargs=(--p_tuning_prompt)
+    ;;
 *)
 esac
 
@@ -148,7 +160,7 @@ fi
 
 if [[ $EVAL_ONLY == false ]]; then
   CHECKPOINT=result/$EXP
-  CUDA_VISIBLE_DEVICES=$GPU ${BC[@]}\
+  CUDA_VISIBLE_DEVICES=$GPU ${BC[@]} \
               --model_name_or_path $MODEL\
               --train_file $TRAIN_FILE\
               --output_dir $CHECKPOINT\
