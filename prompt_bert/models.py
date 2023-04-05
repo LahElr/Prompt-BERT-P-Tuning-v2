@@ -4,6 +4,7 @@ from torch._C import device
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
+import prompt_bert.p_tuning as p_tuning
 
 import transformers
 from transformers import RobertaTokenizer
@@ -26,7 +27,8 @@ class MLPLayer(nn.Module):
 
     def __init__(self, config, scale=1):
         super().__init__()
-        self.dense = nn.Linear(config.hidden_size*scale, config.hidden_size*scale)
+        self.dense = nn.Linear(config.hidden_size*scale,
+                               config.hidden_size*scale)
         self.activation = nn.Tanh()
 
     def forward(self, features, **kwargs):
@@ -34,6 +36,7 @@ class MLPLayer(nn.Module):
         x = self.activation(x)
 
         return x
+
 
 class Similarity(nn.Module):
     """
@@ -49,7 +52,6 @@ class Similarity(nn.Module):
         return self.cos(x, y) / self.temp
 
 
-
 def cl_init(cls, config):
     """
     Contrastive learning class init function.
@@ -58,12 +60,15 @@ def cl_init(cls, config):
         from transformers.models.bert.modeling_bert import BertPredictionHeadTransform
         cls.mlp = BertPredictionHeadTransform(config)
     else:
-        cls.mlp = MLPLayer(config, scale=cls.model_args.mask_embedding_sentence_num_masks)
+        cls.mlp = MLPLayer(
+            config, scale=cls.model_args.mask_embedding_sentence_num_masks)
     cls.sim = Similarity(temp=cls.model_args.temp)
     cls.init_weights()
 
+
 def cl_forward(cls,
                encoder,
+               prefix_encoder,
                input_ids=None,
                attention_mask=None,
                token_type_ids=None,
@@ -74,14 +79,27 @@ def cl_forward(cls,
                output_hidden_states=None,
                labels=None,
                return_dict=None,
-):
-    def get_delta(template_token, length=50):
+               ):
+    def get_delta(template_token=None, length=50):
+        # lahelr: This function calculates feature of "pure prompt"
         with torch.set_grad_enabled(not cls.model_args.mask_embedding_sentence_delta_freeze):
+
+            # # lahelr: additional codes start here
+            # if cls.model_args.p_tuning_prompt:
+            #     # batch_size, hidden_size
+            #     return torch.zeros(length, cls.config.hidden_size), 0
+            # # lahelr: end here
+
             device = input_ids.device
-            d_input_ids = torch.Tensor(template_token).repeat(length, 1).to(device).long()
+            d_input_ids = torch.Tensor(template_token).repeat(
+                length, 1).to(device).long()
+
             if cls.model_args.mask_embedding_sentence_autoprompt:
-                d_inputs_embeds = encoder.embeddings.word_embeddings(d_input_ids)
-                p = torch.arange(d_input_ids.shape[1]).to(d_input_ids.device).view(1, -1)
+
+                d_inputs_embeds = encoder.embeddings.word_embeddings(
+                    d_input_ids)
+                p = torch.arange(d_input_ids.shape[1]).to(
+                    d_input_ids.device).view(1, -1)
                 b = torch.arange(d_input_ids.shape[0]).to(d_input_ids.device)
                 for i, k in enumerate(cls.dict_mbv):
                     if cls.fl_mbv[i]:
@@ -93,13 +111,17 @@ def cl_forward(cls,
                     d_inputs_embeds[b, index] = cls.p_mbv[i]
             else:
                 d_inputs_embeds = None
-            d_position_ids = torch.arange(d_input_ids.shape[1]).to(device).unsqueeze(0).repeat(length, 1).long()
+
+            d_position_ids = torch.arange(d_input_ids.shape[1]).to(
+                device).unsqueeze(0).repeat(length, 1).long()
             if not cls.model_args.mask_embedding_sentence_delta_no_position:
-                d_position_ids[:, len(cls.bs)+1:] += torch.arange(length).to(device).unsqueeze(-1)
+                d_position_ids[:, len(
+                    cls.bs)+1:] += torch.arange(length).to(device).unsqueeze(-1)
             m_mask = d_input_ids == cls.mask_token_id
-            outputs = encoder(input_ids=d_input_ids if d_inputs_embeds is None else None ,
+            outputs = encoder(input_ids=d_input_ids if d_inputs_embeds is None else None,
                               inputs_embeds=d_inputs_embeds,
-                              position_ids=d_position_ids,  output_hidden_states=True, return_dict=True)
+                              position_ids=d_position_ids, output_hidden_states=True,
+                              return_dict=True)
             last_hidden = outputs.last_hidden_state
             delta = last_hidden[m_mask]
             template_len = d_input_ids.shape[1]
@@ -121,17 +143,22 @@ def cl_forward(cls,
 
     mlm_outputs = None
     # Flatten input for encoding
-    input_ids = input_ids.view((-1, input_ids.size(-1))) # (bs * num_sent, len)
-    attention_mask = attention_mask.view((-1, attention_mask.size(-1))) # (bs * num_sent len)
+    # lahelr 每个样本都有固定数量（2或3）条句子，一条正例，一条反例，如果有第三条，就是强反例；这里摊平了
+    input_ids = input_ids.view(
+        (-1, input_ids.size(-1)))  # (bs * num_sent, len)
+    # print(attention_mask.shape) # (6,3,32)
+    attention_mask = attention_mask.view(
+        (-1, attention_mask.size(-1)))  # (bs * num_sent, len) 
     if token_type_ids is not None:
-        token_type_ids = token_type_ids.view((-1, token_type_ids.size(-1))) # (bs * num_sent, len)
+        token_type_ids = token_type_ids.view(
+            (-1, token_type_ids.size(-1)))  # (bs * num_sent, len)
 
     if cls.model_args.mask_embedding_sentence_autoprompt:
         inputs_embeds = encoder.embeddings.word_embeddings(input_ids)
         p = torch.arange(input_ids.shape[1]).to(input_ids.device).view(1, -1)
         b = torch.arange(input_ids.shape[0]).to(input_ids.device)
         for i, k in enumerate(cls.dict_mbv):
-            if cls.model_args.mask_embedding_sentence_autoprompt_continue_training_as_positive and i%2 == 0:
+            if cls.model_args.mask_embedding_sentence_autoprompt_continue_training_as_positive and i % 2 == 0:
                 continue
             if cls.fl_mbv[i]:
                 index = ((input_ids == k) * p).max(-1)[1]
@@ -140,6 +167,18 @@ def cl_forward(cls,
             #print(inputs_embeds[b,index][0].sum().item(), cls.p_mbv[i].sum().item())
             #print(inputs_embeds[b,index][0].mean().item(), cls.p_mbv[i].mean().item())
             inputs_embeds[b, index] = cls.p_mbv[i]
+
+    # lahelr: new code start here
+    if cls.model_args.p_tuning_prompt:
+        assert input_ids is not None
+        pe_batch_size = input_ids.size(0)
+        past_key_values = p_tuning.get_prompt(cls,batch_size=pe_batch_size)
+        prefix_attention_mask = torch.ones(pe_batch_size, cls.model_args.pre_seq_len).to(encoder.device)
+        # print(prefix_attention_mask.shape)
+        attention_mask = torch.cat((prefix_attention_mask, attention_mask), dim=1)
+    else:
+        past_key_values = None
+    # lahelr: new code end here
 
     outputs = encoder(
         None if cls.model_args.mask_embedding_sentence_autoprompt else input_ids,
@@ -151,18 +190,16 @@ def cl_forward(cls,
         output_attentions=output_attentions,
         output_hidden_states=False,
         return_dict=True,
+        past_key_values = past_key_values # lahelr
     )
-
 
     # Pooling
     if cls.model_args.mask_embedding_sentence:
         last_hidden = outputs.last_hidden_state
         pooler_output = last_hidden[input_ids == cls.mask_token_id]
-
         if cls.model_args.mask_embedding_sentence_delta:
             if cls.model_args.mask_embedding_sentence_org_mlp:
                 pooler_output = cls.mlp(pooler_output)
-
             if len(cls.model_args.mask_embedding_sentence_different_template) > 0:
                 pooler_output = pooler_output.view(batch_size, num_sent, -1)
                 attention_mask = attention_mask.view(batch_size, num_sent, -1)
@@ -175,12 +212,23 @@ def cl_forward(cls,
             else:
                 blen = attention_mask.sum(-1) - template_len
                 pooler_output -= delta[blen]
+    # lahelr: new code starts here
+    elif cls.model_args.p_tuning_prompt:
+        pooler_output = outputs.pooler_output  # (bs, hidden size)
+        # try:
+        #     pooler_output = outputs.pooler_output
+        # except AttributeError:
+        #     pooler_output = outputs['last_hidden_state'][:, 0, :]
+    # lahelr: new code ends here
 
-        pooler_output = pooler_output.view(batch_size * num_sent, -1)
+    pooler_output = pooler_output.view(batch_size * num_sent, -1)
+    # lahelr: ends here
 
-    #if cls.model_args.add_pseudo_instances:
-        #batch_size *= 2
-    pooler_output = pooler_output.view((batch_size, num_sent, pooler_output.size(-1))) # (bs, num_sent, hidden)
+    # if cls.model_args.add_pseudo_instances:
+    #batch_size *= 2
+    # lahelr: 变回原本的形状
+    pooler_output = pooler_output.view(
+        (batch_size, num_sent, pooler_output.size(-1)))  # (bs, num_sent, hidden)
 
     # If using "cls", we add an extra MLP layer
     # (same as BERT's original implementation) over the representation.
@@ -191,7 +239,7 @@ def cl_forward(cls,
         pooler_output = cls.mlp(pooler_output)
 
     # Separate representation
-    z1, z2 = pooler_output[:,0], pooler_output[:,1]
+    z1, z2 = pooler_output[:, 0], pooler_output[:, 1]
 
     # Hard negative
     if num_sent == 3:
@@ -201,7 +249,8 @@ def cl_forward(cls,
     if dist.is_initialized() and cls.training:
         # Gather hard negative
         if num_sent >= 3:
-            z3_list = [torch.zeros_like(z3) for _ in range(dist.get_world_size())]
+            z3_list = [torch.zeros_like(z3)
+                       for _ in range(dist.get_world_size())]
             dist.all_gather(tensor_list=z3_list, tensor=z3.contiguous())
             z3_list[dist.get_rank()] = z3
             z3 = torch.cat(z3_list, 0)
@@ -224,10 +273,10 @@ def cl_forward(cls,
     if cls.model_args.dot_sim:
         cos_sim = torch.mm(torch.sigmoid(z1), torch.sigmoid(z2.permute(1, 0)))
     else:
-        #if cls.model_args.mask_embedding_sentence_whole_vocab_cl:
-            #z1, z2 = torch.sigmoid(z1), torch.sigmoid(z2)
+        # if cls.model_args.mask_embedding_sentence_whole_vocab_cl:
+        #z1, z2 = torch.sigmoid(z1), torch.sigmoid(z2)
         cos_sim = cls.sim(z1.unsqueeze(1), z2.unsqueeze(0))
-        #print(cos_sim)
+        # print(cos_sim)
         #import pdb;pdb.set_trace()
     # Hard negative
     if cls.model_args.norm_instead_temp:
@@ -251,7 +300,8 @@ def cl_forward(cls,
         # Note that weights are actually logits of weights
         z3_weight = cls.model_args.hard_negative_weight
         weights = torch.tensor(
-            [[0.0] * (cos_sim.size(-1) - z1_z3_cos.size(-1)) + [0.0] * i + [z3_weight] + [0.0] * (z1_z3_cos.size(-1) - i - 1) for i in range(z1_z3_cos.size(-1))]
+            [[0.0] * (cos_sim.size(-1) - z1_z3_cos.size(-1)) + [0.0] * i + [z3_weight] +
+             [0.0] * (z1_z3_cos.size(-1) - i - 1) for i in range(z1_z3_cos.size(-1))]
         ).to(input_ids.device)
         cos_sim = cos_sim + weights
 
@@ -270,11 +320,10 @@ def cl_forward(cls,
     )
 
 
-
-
 def sentemb_forward(
     cls,
     encoder,
+    prefix_encoder = None,
     input_ids=None,
     attention_mask=None,
     token_type_ids=None,
@@ -287,16 +336,20 @@ def sentemb_forward(
     return_dict=None,
 ):
 
-    if cls.model_args.mask_embedding_sentence_delta and not cls.model_args.mask_embedding_sentence_delta_no_delta_eval :
+    if cls.model_args.mask_embedding_sentence_delta and not cls.model_args.mask_embedding_sentence_delta_no_delta_eval:
         device = input_ids.device
-        d_input_ids = torch.Tensor([cls.mask_embedding_template]).repeat(128, 1).to(device).long()
-        d_position_ids = torch.arange(d_input_ids.shape[1]).to(device).unsqueeze(0).repeat(128, 1).long()
+        d_input_ids = torch.Tensor([cls.mask_embedding_template]).repeat(
+            128, 1).to(device).long()
+        d_position_ids = torch.arange(d_input_ids.shape[1]).to(
+            device).unsqueeze(0).repeat(128, 1).long()
         if not cls.model_args.mask_embedding_sentence_delta_no_position:
-            d_position_ids[:, len(cls.bs)+1:] += torch.arange(128).to(device).unsqueeze(-1)
+            d_position_ids[:, len(
+                cls.bs)+1:] += torch.arange(128).to(device).unsqueeze(-1)
         m_mask = d_input_ids == cls.mask_token_id
 
         with torch.no_grad():
-            outputs = encoder(input_ids=d_input_ids, position_ids=d_position_ids,  output_hidden_states=True, return_dict=True)
+            outputs = encoder(input_ids=d_input_ids, position_ids=d_position_ids,
+                              output_hidden_states=True, return_dict=True)
             last_hidden = outputs.last_hidden_state
             delta = last_hidden[m_mask]
         delta.requires_grad = False
@@ -337,7 +390,8 @@ def sentemb_forward(
     if cls.model_args.mask_embedding_sentence_autoprompt:
         inputs_embeds = encoder.embeddings.word_embeddings(input_ids)
         with torch.no_grad():
-            p = torch.arange(input_ids.shape[1]).to(input_ids.device).view(1, -1)
+            p = torch.arange(input_ids.shape[1]).to(
+                input_ids.device).view(1, -1)
             b = torch.arange(input_ids.shape[0]).to(input_ids.device)
             for i, k in enumerate(cls.dict_mbv):
                 if cls.fl_mbv[i]:
@@ -345,6 +399,18 @@ def sentemb_forward(
                 else:
                     index = ((input_ids == k) * -p).min(-1)[1]
                 inputs_embeds[b, index] = cls.p_mbv[i]
+
+    # lahelr: new code start here
+    if cls.model_args.p_tuning_prompt:
+        assert input_ids is not None
+        batch_size = input_ids.size(0)
+        past_key_values = p_tuning.get_prompt(cls,batch_size=batch_size)
+        prefix_attention_mask = torch.ones(batch_size, cls.model_args.pre_seq_len).to(encoder.device)
+        attention_mask = torch.cat((prefix_attention_mask, attention_mask), dim=1)
+    else:
+        past_key_values = None
+    # lahelr: new code end here
+
 
     outputs = encoder(
         None if cls.model_args.mask_embedding_sentence_autoprompt else input_ids,
@@ -356,12 +422,13 @@ def sentemb_forward(
         output_attentions=output_attentions,
         output_hidden_states=False,
         return_dict=True,
+        past_key_values = past_key_values # lahelr
     )
 
     if cls.model_args.mask_embedding_sentence and hasattr(cls, 'bs'):
         last_hidden = outputs.last_hidden_state
         pooler_output = last_hidden[input_ids == cls.mask_token_id]
-        if cls.model_args.mask_embedding_sentence_delta and not cls.model_args.mask_embedding_sentence_delta_no_delta_eval :
+        if cls.model_args.mask_embedding_sentence_delta and not cls.model_args.mask_embedding_sentence_delta_no_delta_eval:
             blen = attention_mask.sum(-1) - template_len
             if cls.model_args.mask_embedding_sentence_org_mlp and not cls.model_args.mlp_only_train:
                 pooler_output, delta = cls.mlp(pooler_output), cls.mlp(delta)
@@ -370,7 +437,17 @@ def sentemb_forward(
         if cls.model_args.mask_embedding_sentence_avg:
             pooler_output = pooler_output.view(input_ids.shape[0], -1)
         else:
-            pooler_output = pooler_output.view(input_ids.shape[0], -1, pooler_output.shape[-1]).mean(1)
+            pooler_output = pooler_output.view(
+                input_ids.shape[0], -1, pooler_output.shape[-1]).mean(1)
+            
+    #lahelr: new code start
+    if cls.model_args.p_tuning_prompt:
+        try:
+            pooler_output = outputs.pooler_output
+        except AttributeError:
+            pooler_output = outputs['last_hidden_state'][:, 0, :]
+    #lahelr: new code end
+
     if not cls.model_args.mlp_only_train and not cls.model_args.mask_embedding_sentence_org_mlp:
         pooler_output = cls.mlp(pooler_output)
 
@@ -392,6 +469,18 @@ class BertForCL(BertPreTrainedModel):
         self.model_args = model_kargs["model_args"]
         self.bert = BertModel(config)
 
+        # lahelr: freeze bert model
+        if self.model_args.p_tuning_prompt:
+            for p_name, p in self.bert.named_parameters():
+                p.requires_grad = False
+            self.prefix_encoder = p_tuning.PrefixEncoder(
+                self.model_args, config)
+            self.prefix_tokens = torch.arange(self.model_args.pre_seq_len).long()
+        else:
+            self.prefix_encoder = None
+        self.config = config
+        # lahelr: additional codes end here
+
         if self.model_args.mask_embedding_sentence_autoprompt:
             # register p_mbv in init, avoid not saving weight
             self.p_mbv = torch.nn.Parameter(torch.zeros(10))
@@ -400,46 +489,47 @@ class BertForCL(BertPreTrainedModel):
 
         cl_init(self, config)
 
-
     def forward(self,
-        input_ids=None,
-        attention_mask=None,
-        token_type_ids=None,
-        position_ids=None,
-        head_mask=None,
-        inputs_embeds=None,
-        labels=None,
-        output_attentions=None,
-        output_hidden_states=None,
-        return_dict=None,
-        sent_emb=False,
-    ):
+                input_ids=None,
+                attention_mask=None,
+                token_type_ids=None,
+                position_ids=None,
+                head_mask=None,
+                inputs_embeds=None,
+                labels=None,
+                output_attentions=None,
+                output_hidden_states=None,
+                return_dict=None,
+                sent_emb=False,
+                ):
         if sent_emb:
             return sentemb_forward(self, self.bert,
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                token_type_ids=token_type_ids,
-                position_ids=position_ids,
-                head_mask=head_mask,
-                inputs_embeds=inputs_embeds,
-                labels=labels,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-                return_dict=return_dict,
-            )
+                                   prefix_encoder=self.prefix_encoder,
+                                   input_ids=input_ids,
+                                   attention_mask=attention_mask,
+                                   token_type_ids=token_type_ids,
+                                   position_ids=position_ids,
+                                   head_mask=head_mask,
+                                   inputs_embeds=inputs_embeds,
+                                   labels=labels,
+                                   output_attentions=output_attentions,
+                                   output_hidden_states=output_hidden_states,
+                                   return_dict=return_dict,
+                                   )
         else:
             return cl_forward(self, self.bert,
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                token_type_ids=token_type_ids,
-                position_ids=position_ids,
-                head_mask=head_mask,
-                inputs_embeds=inputs_embeds,
-                labels=labels,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-                return_dict=return_dict,
-            )
+                              prefix_encoder=self.prefix_encoder,
+                              input_ids=input_ids,
+                              attention_mask=attention_mask,
+                              token_type_ids=token_type_ids,
+                              position_ids=position_ids,
+                              head_mask=head_mask,
+                              inputs_embeds=inputs_embeds,
+                              labels=labels,
+                              output_attentions=output_attentions,
+                              output_hidden_states=output_hidden_states,
+                              return_dict=return_dict,
+                              )
 
 
 class RobertaForCL(RobertaPreTrainedModel):
@@ -447,6 +537,7 @@ class RobertaForCL(RobertaPreTrainedModel):
 
     def __init__(self, config, *model_args, **model_kargs):
         super().__init__(config)
+        raise NotImplementedError
         self.model_args = model_kargs["model_args"]
         #self.roberta = RobertaModel(config)
         self.roberta = RobertaModel(config)
@@ -454,41 +545,41 @@ class RobertaForCL(RobertaPreTrainedModel):
         cl_init(self, config)
 
     def forward(self,
-        input_ids=None,
-        attention_mask=None,
-        token_type_ids=None,
-        position_ids=None,
-        head_mask=None,
-        inputs_embeds=None,
-        labels=None,
-        output_attentions=None,
-        output_hidden_states=None,
-        return_dict=None,
-        sent_emb=False,
-    ):
+                input_ids=None,
+                attention_mask=None,
+                token_type_ids=None,
+                position_ids=None,
+                head_mask=None,
+                inputs_embeds=None,
+                labels=None,
+                output_attentions=None,
+                output_hidden_states=None,
+                return_dict=None,
+                sent_emb=False,
+                ):
         if sent_emb:
             return sentemb_forward(self, self.roberta,
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                token_type_ids=token_type_ids,
-                position_ids=position_ids,
-                head_mask=head_mask,
-                inputs_embeds=inputs_embeds,
-                labels=labels,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-                return_dict=return_dict,
-            )
+                                   input_ids=input_ids,
+                                   attention_mask=attention_mask,
+                                   token_type_ids=token_type_ids,
+                                   position_ids=position_ids,
+                                   head_mask=head_mask,
+                                   inputs_embeds=inputs_embeds,
+                                   labels=labels,
+                                   output_attentions=output_attentions,
+                                   output_hidden_states=output_hidden_states,
+                                   return_dict=return_dict,
+                                   )
         else:
             return cl_forward(self, self.roberta,
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                token_type_ids=token_type_ids,
-                position_ids=position_ids,
-                head_mask=head_mask,
-                inputs_embeds=inputs_embeds,
-                labels=labels,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-                return_dict=return_dict,
-            )
+                              input_ids=input_ids,
+                              attention_mask=attention_mask,
+                              token_type_ids=token_type_ids,
+                              position_ids=position_ids,
+                              head_mask=head_mask,
+                              inputs_embeds=inputs_embeds,
+                              labels=labels,
+                              output_attentions=output_attentions,
+                              output_hidden_states=output_hidden_states,
+                              return_dict=return_dict,
+                              )

@@ -57,6 +57,8 @@ from torch.utils.data.dataset import Dataset
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data.sampler import RandomSampler, SequentialSampler
 
+import pickle
+
 if is_torch_tpu_available():
     import torch_xla.core.xla_model as xm
     import torch_xla.debug.metrics as met
@@ -448,7 +450,13 @@ class CLTrainer(Trainer):
 
             inputs = None
             last_inputs = None
+            # in_epoch_iter = 0 # lahelr
             for step, inputs in enumerate(epoch_iterator):
+                # #lahelr 下面这段代码是用在debug过程中的，正式运行时记得注释掉
+                # in_epoch_iter+=1
+                # if in_epoch_iter >=10:
+                #     break
+                # #lahelr 到这里
                 # Skip past any already trained steps if resuming training
                 if steps_trained_in_current_epoch > 0:
                     steps_trained_in_current_epoch -= 1
@@ -558,3 +566,34 @@ class CLTrainer(Trainer):
         self._total_loss_scalar += tr_loss.item()
 
         return TrainOutput(self.state.global_step, self._total_loss_scalar / self.state.global_step, metrics)
+
+    def _save(self, output_dir: Optional[str] = None):
+        #lahelr: copied from library
+        output_dir = output_dir if output_dir is not None else self.args.output_dir
+        os.makedirs(output_dir, exist_ok=True)
+        logger.info("Saving model checkpoint to %s", output_dir)
+        # Save a trained model and configuration using `save_pretrained()`.
+        # They can then be reloaded using `from_pretrained()`
+        if not isinstance(self.model, PreTrainedModel):
+            logger.info("Trainer.model is not a `PreTrainedModel`, only saving its state dict.")
+            state_dict = self.model.state_dict()
+            torch.save(state_dict, os.path.join(output_dir, WEIGHTS_NAME))
+        else:
+            self.model.save_pretrained(output_dir)
+        if self.tokenizer is not None and self.is_world_process_zero():
+            self.tokenizer.save_pretrained(output_dir)
+
+        # Good practice: save your training arguments together with the trained model
+        torch.save(self.args, os.path.join(output_dir, "training_args.bin"))
+
+        #lahelr: new code start
+        if hasattr(self.model,"mlp"):
+            torch.save(self.model.mlp.state_dict(), os.path.join(output_dir, "mlp.ckpt"))
+        if hasattr(self.model,"prefix_encoder"):
+            torch.save(self.model.prefix_encoder.state_dict(),os.path.join(output_dir, "prefix_encoder.ckpt"))
+            with open(os.path.join(output_dir, "prefix_encoder_model_args.pkl"),"wb") as pkl_file:
+                pickle.dump(vars(self.model.prefix_encoder.model_args),pkl_file)
+            with open(os.path.join(output_dir, "prefix_encoder_config.pkl"),"wb") as pkl_file:
+                pickle.dump(self.model.prefix_encoder.config,pkl_file)
+        #lahelr: new code end
+
