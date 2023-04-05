@@ -71,6 +71,11 @@ supervised
 ./run.sh sup-bert
 ```
 
+Run prefix tuning:
+``` sh
+./run.sh prefix
+```
+
  
 ## Static token embedding with removing embedding biases
 robert-base, bert-base-cased and robert-base-uncased
