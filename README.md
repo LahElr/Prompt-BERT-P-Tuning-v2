@@ -28,7 +28,7 @@ Download Data
 ``` sh
 cd SentEval/data/downstream/
 bash download_dataset.sh
-cd -
+cd ../../..
 cd ./data
 bash download_wiki.sh
 bash download_nli.sh
