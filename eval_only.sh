@@ -82,5 +82,14 @@ case "$EXP" in
         --mask_embedding_sentence_delta \
         --mask_embedding_sentence_template "*cls*_This_sentence_:_'_*sent_0*_'_means*mask*.*sep+*"
     ;;
+
+"result/prefix")
+    CUDA_VISIBLE_DEVICES=0 python evaluation.py \
+        --model_name_or_path  $EXP\
+        --pooler avg\
+        --mode test\
+        --p_tuning_prompt\
+        --p_tuning_prompt_mlp
+    ;;
 *)
 esac

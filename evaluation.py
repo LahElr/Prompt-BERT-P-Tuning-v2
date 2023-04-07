@@ -12,6 +12,7 @@ import torch
 import transformers
 from transformers import AutoModel, AutoTokenizer
 from prompt_bert.p_tuning import PrefixEncoder, get_prompt, get_prompt_
+from prompt_bert.models import MLPLayer
 import pickle
 
 # Set up logger
@@ -118,6 +119,7 @@ def main():
 
     # lahelr: new argument here:
     parser.add_argument("--p_tuning_prompt", action="store_true")
+    parser.add_argument("--p_tuning_prompt_mlp", action="store_true")
     # lahelr: new argument end
 
     args = parser.parse_args()
@@ -166,6 +168,10 @@ def main():
         else:
             raise FileNotFoundError(
                 "Evaluating P-tuning-v2 but no saved prefix_encoder!")
+        if args.p_tuning_prompt_mlp:
+            mlp = MLPLayer(pe_config)
+            mlp.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "mlp.ckpt")))
+            mlp = mlp.to(device)
     # lahelr: new code end
 
     if args.mask_embedding_sentence_autoprompt:
@@ -370,6 +376,8 @@ def main():
                 #     pooler_output = outputs['last_hidden_state'][:, 0, :]
                 last_hidden = outputs.last_hidden_state
                 hidden_states = outputs.hidden_states
+                if args.p_tuning_prompt_mlp:
+                    pooler_output = mlp(pooler_output)
             # lahelr: new code end here
             else:
                 outputs = model(

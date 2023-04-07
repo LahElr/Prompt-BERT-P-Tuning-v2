@@ -149,7 +149,8 @@ case "$EXP" in
     MODEL=bert-base-uncased
     args=(--p_tuning_prompt \
           --prefix_projection)
-    eargs=(--p_tuning_prompt)
+    eargs=(--p_tuning_prompt
+           --p_tuning_prompt_mlp)
     ;;
 *)
 esac
