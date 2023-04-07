@@ -25,6 +25,12 @@ Run prefix tuning:
 ./run.sh prefix
 ```
 
+Run prefix tuning without training:
+
+``` sh
+./eval_only.sh result/prefix
+```
+
 New arguments are added in `train.py`, from 332-th line
 
 Search `lahelr` for modifications I have made.
