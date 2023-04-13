@@ -1,4 +1,4 @@
-# PromptBERT: Prompt makes BERT Better at Sentence Embeddings
+This is a team project for AI6127 course at NTU, aims at applying the prefix tuning method utilzed in *P-Tuning v2: Prompt Tuning Can Be Comparable to Fine-tuning Universally Across Scales and Tasks*.
 
 ## Setup
 Install Dependencies
